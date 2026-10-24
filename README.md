@@ -23,6 +23,8 @@ import { recordInteractions } from 'web-mocks-recorder/wtr.js';
 recordInteractions(worker);
 ```
 
+**Call it at the test file's top level — not inside a hook.** `recordInteractions()` registers its own `before`/`afterEach` hooks, so calling it from inside e.g. a `before()` hook means those hooks are never scheduled. That setup fails completely silently: tests pass, no warning is logged, and no HAR file is written.
+
 **Opt-in switch:** recording runs only with `WEB_MOCKS_RECORDER=1` (or `recorderPlugin({ enabled: true })`). When disabled, no listener is attached, nothing is written and no directory is created.
 
 ## Output
