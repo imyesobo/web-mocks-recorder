@@ -22,33 +22,37 @@ test('recording enabled captures every method and leaves test results unchanged'
   t.after(() => rmSync(out, { recursive: true, force: true }));
   assert.equal(result.status, 0, result.stdout + result.stderr);
 
-  const doc = read('wtr/test/fixtures/methods.fixture.js.interactions.json');
-  assert.equal(doc.source, 'wtr');
-  assert.equal(doc.schemaVersion, 1);
-  const byMethod = Object.fromEntries(doc.interactions.map(i => [i.request.method, i]));
+  const doc = read('wtr/test/fixtures/methods.fixture.js.har');
+  assert.equal(doc.log.version, '1.2');
+  assert.equal(doc.log.creator.name, 'web-mocks-recorder');
+  assert.equal(doc.log._source, 'wtr');
+  const byMethod = Object.fromEntries(doc.log.entries.map(entry => [entry.request.method, entry]));
   assert.deepEqual(Object.keys(byMethod).sort(), ['DELETE', 'GET', 'PATCH', 'POST', 'PUT']);
-  for (const i of doc.interactions) {
-    assert.equal(i.executionId, doc.executionId);
-    assert.equal(i.source, 'wtr');
-    assert.ok(!Number.isNaN(Date.parse(i.timestamp)));
+  for (const entry of doc.log.entries) {
+    assert.equal(entry._executionId, doc.log._executionId);
+    assert.equal(entry._source, 'wtr');
+    assert.ok(!Number.isNaN(Date.parse(entry.startedDateTime)));
+    assert.deepEqual(Object.keys(entry.timings), ['blocked', 'dns', 'connect', 'send', 'wait', 'receive', 'ssl']);
   }
 
   const get = byMethod.GET;
   assert.match(get.request.url, /\/api\/items$/);
-  assert.deepEqual(get.request.headers.accept, ['application/json']);
-  assert.equal(get.request.body, null);
+  assert.deepEqual(get.request.headers.find(header => header.name === 'accept'), {
+    name: 'accept',
+    value: 'application/json',
+  });
   assert.equal(get.response.status, 200);
-  assert.equal(get.response.body, '[{"id":1}]');
-  assert.deepEqual(get.response.headers['x-trace'], ['a']);
+  assert.equal(get.response.content.text, '[{"id":1}]');
+  assert.deepEqual(get.response.headers.find(header => header.name === 'x-trace'), { name: 'x-trace', value: 'a' });
 
-  assert.equal(byMethod.POST.request.body, '{"name":"x"}');
+  assert.equal(byMethod.POST.request.postData.text, '{"name":"x"}');
   assert.equal(byMethod.POST.response.status, 201);
-  assert.equal(byMethod.POST.response.body, '{"echoed":{"name":"x"}}');
-  assert.equal(byMethod.PUT.request.body, 'new');
-  assert.equal(byMethod.PUT.response.body, 'updated');
-  assert.equal(byMethod.PATCH.request.body, '{}');
+  assert.equal(byMethod.POST.response.content.text, '{"echoed":{"name":"x"}}');
+  assert.equal(byMethod.PUT.request.postData.text, 'new');
+  assert.equal(byMethod.PUT.response.content.text, 'updated');
+  assert.equal(byMethod.PATCH.request.postData.text, '{}');
   assert.equal(byMethod.DELETE.response.status, 204);
-  assert.equal(byMethod.DELETE.response.body, null);
+  assert.equal(byMethod.DELETE.response.content.size, 0);
 });
 
 test('recording disabled produces no output and tests still pass', t => {
@@ -62,11 +66,12 @@ test('unsupported payload is reported, not invented, and does not fail the test'
   const { out, result, read } = runWtr('test/fixtures/binary.fixture.js', { WEB_MOCKS_RECORDER: '1' });
   t.after(() => rmSync(out, { recursive: true, force: true }));
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  const doc = read('wtr/test/fixtures/binary.fixture.js.interactions.json');
-  const [i] = doc.interactions;
-  assert.equal(i.response.body, null);
-  assert.equal(i.diagnostics[0].code, 'UNSUPPORTED_PAYLOAD');
-  assert.equal(i.diagnostics[0].target, 'response.body');
-  assert.match(i.diagnostics[0].message, /image\/png/);
+  const doc = read('wtr/test/fixtures/binary.fixture.js.har');
+  const [entry] = doc.log.entries;
+  assert.equal(entry.response.content.size, -1);
+  assert.equal(entry.response.content.text, undefined);
+  assert.equal(entry._diagnostics[0].code, 'UNSUPPORTED_PAYLOAD');
+  assert.equal(entry._diagnostics[0].target, 'response.body');
+  assert.match(entry._diagnostics[0].message, /image\/png/);
   assert.match(result.stdout + result.stderr, /UNSUPPORTED_PAYLOAD/);
 });
