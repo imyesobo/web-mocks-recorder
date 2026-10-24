@@ -9,17 +9,20 @@ import { COMMANDS } from './commands.js';
  * Opt-in: enabled only when `enabled: true` or env `WEB_MOCKS_RECORDER=1`. When disabled the commands report
  * `enabled: false`, nothing is written and no directory is created.
  *
- * Output: `<outputDir>/wtr/<test file path relative to rootDir>.interactions.json`, one file per test file
- * (empty recordings are not written).
+ * Output: `<outputDir>/wtr/<test file path relative to rootDir>.<producer>.har`, one HAR file per test file
+ * **per producer** (empty recordings are not written). A "producer" groups interactions by the request URL's
+ * hostname plus its first `pathSegments` path segments (default `1`), so interactions recorded against different
+ * backends/APIs within the same test file land in separate HAR files instead of being merged into one.
  *
- * @param {{ enabled?: boolean, outputDir?: string, rootDir?: string, executionId?: string }} [options]
+ * @param {{ enabled?: boolean, outputDir?: string, rootDir?: string, executionId?: string, pathSegments?: number }} [options]
  */
 export function recorderPlugin(options = {}) {
   const enabled = options.enabled ?? ['1', 'true'].includes(process.env.WEB_MOCKS_RECORDER ?? '');
   const outputDir = path.resolve(options.outputDir ?? '.interactions');
   const rootDir = path.resolve(options.rootDir ?? process.cwd());
   const executionId = options.executionId ?? randomUUID();
-  /** @type {Map<string, { interactions: object[], diagnostics: string[] }>} */
+  const pathSegments = Number.isInteger(options.pathSegments) ? Math.max(0, options.pathSegments) : 1;
+  /** @type {Map<string, { diagnostics: string[], groups: Map<string, { host: string, pathPrefix: string, interactions: object[] }> }>} */
   const files = new Map();
   const writes = new Map();
 
@@ -32,41 +35,87 @@ export function recorderPlugin(options = {}) {
       if (!enabled) return false;
 
       const testFile = session.testFile;
-      const relative = path.relative(rootDir, testFile).split(path.sep).join('/');
-      const target = path.join(outputDir, 'wtr', `${relative.replace(/^(\.\.\/)+/, '')}.har`);
-      const previousWrite = writes.get(target) ?? Promise.resolve();
-      const write = previousWrite.catch(() => {}).then(async () => {
-        const entry = files.get(testFile) ?? { interactions: [], diagnostics: [] };
-        files.set(testFile, entry);
-        entry.interactions.push(...(payload?.interactions ?? []));
-        entry.diagnostics.push(...(payload?.diagnostics ?? []));
-        if (!entry.interactions.length) return true;
+      const relative = path.relative(rootDir, testFile).split(path.sep).join('/').replace(/^(\.\.\/)+/, '');
+      const fileState = files.get(testFile) ?? { diagnostics: [], groups: new Map() };
+      files.set(testFile, fileState);
+      fileState.diagnostics.push(...(payload?.diagnostics ?? []));
 
-        const document = {
-          log: {
-            version: '1.2',
-            creator: { name: 'web-mocks-recorder', version: '0.1.0' },
-            entries: entry.interactions.map(toHarEntry),
-            _executionId: executionId,
-            _source: 'wtr',
-            _testFile: relative,
-            ...(entry.diagnostics.length && { _diagnostics: entry.diagnostics }),
-          },
-        };
-        await mkdir(path.dirname(target), { recursive: true });
-        const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
-        await writeFile(tmp, JSON.stringify(document, null, 2) + '\n');
-        await rename(tmp, target);
-        return true;
-      });
-      writes.set(target, write);
-      try {
-        return await write;
-      } finally {
-        if (writes.get(target) === write) writes.delete(target);
+      /** @type {Map<string, object[]>} interactions from this call only, grouped by producer key */
+      const batch = new Map();
+      for (const interaction of payload?.interactions ?? []) {
+        const producer = describeProducer(interaction.request.url, pathSegments);
+        if (!fileState.groups.has(producer.key)) {
+          fileState.groups.set(producer.key, { host: producer.host, pathPrefix: producer.pathPrefix, interactions: [] });
+        }
+        (batch.get(producer.key) ?? batch.set(producer.key, []).get(producer.key)).push(interaction);
       }
+      if (!batch.size) return true; // nothing attributable to a producer this round
+
+      const writeGroup = async key => {
+        const target = path.join(outputDir, 'wtr', `${relative}.${key}.har`);
+        const previousWrite = writes.get(target) ?? Promise.resolve();
+        const write = previousWrite.catch(() => {}).then(async () => {
+          const group = fileState.groups.get(key);
+          group.interactions.push(...batch.get(key));
+
+          const document = {
+            log: {
+              version: '1.2',
+              creator: { name: 'web-mocks-recorder', version: '0.1.0' },
+              entries: group.interactions.map(toHarEntry),
+              _executionId: executionId,
+              _source: 'wtr',
+              _testFile: relative,
+              _producer: { host: group.host, pathPrefix: group.pathPrefix },
+              ...(fileState.diagnostics.length && { _diagnostics: fileState.diagnostics }),
+            },
+          };
+          await mkdir(path.dirname(target), { recursive: true });
+          const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+          await writeFile(tmp, JSON.stringify(document, null, 2) + '\n');
+          await rename(tmp, target);
+          return true;
+        });
+        writes.set(target, write);
+        try {
+          return await write;
+        } finally {
+          if (writes.get(target) === write) writes.delete(target);
+        }
+      };
+
+      const results = await Promise.all([...batch.keys()].map(writeGroup));
+      return results.every(Boolean);
     },
   };
+}
+
+/**
+ * Derives the "producer" a request belongs to: its hostname (port is ignored so a dev server's randomly
+ * assigned port doesn't fragment a single backend into multiple files) plus its first `pathSegments` path
+ * segments. Unparsable URLs fall into a single `unknown` bucket rather than being dropped.
+ *
+ * @param {string} url
+ * @param {number} pathSegments
+ * @returns {{ key: string, host: string, pathPrefix: string }}
+ */
+function describeProducer(url, pathSegments) {
+  let host = 'unknown-host';
+  let segments = [];
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname || host;
+    segments = parsed.pathname.split('/').filter(Boolean).slice(0, pathSegments);
+  } catch {
+    // leave the defaults; the interaction still gets recorded, just ungrouped by path.
+  }
+  const pathPrefix = segments.length ? `/${segments.join('/')}` : '';
+  const key = sanitizeForFilename([host, ...segments].join('-') || 'unknown');
+  return { key, host, pathPrefix };
+}
+
+function sanitizeForFilename(value) {
+  return value.replace(/[^A-Za-z0-9._-]+/g, '-');
 }
 
 function toHarEntry(interaction) {

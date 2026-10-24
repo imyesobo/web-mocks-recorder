@@ -6,14 +6,14 @@ import path from 'node:path';
 import { COMMANDS } from '../../src/commands.js';
 import { recorderPlugin } from '../../src/plugin.js';
 
-test('concurrent saves for a test file preserve every interaction', async t => {
+test('concurrent saves to the same producer preserve every interaction', async t => {
   const outputDir = await mkdtemp(path.join(tmpdir(), 'wmr-plugin-'));
   t.after(() => rm(outputDir, { recursive: true, force: true }));
   const plugin = recorderPlugin({ enabled: true, outputDir, rootDir: '/project' });
   const session = { testFile: '/project/test/example.test.js' };
   const interactions = Array.from({ length: 10 }, (_, index) => ({
     timestamp: `2026-01-01T00:00:0${index}.000Z`,
-    request: { method: 'GET', url: `http://example.test/${index}`, headers: {}, body: null },
+    request: { method: 'GET', url: `http://example.test/items/${index}`, headers: {}, body: null },
     response: { status: 200, statusText: 'OK', headers: {}, body: null },
   }));
 
@@ -23,10 +23,77 @@ test('concurrent saves for a test file preserve every interaction', async t => {
     session,
   })));
 
-  const file = path.join(outputDir, 'wtr/test/example.test.js.har');
+  const file = path.join(outputDir, 'wtr/test/example.test.js.example.test-items.har');
   const document = JSON.parse(await readFile(file, 'utf8'));
   assert.deepEqual(
     document.log.entries.map(entry => entry.request.url).sort(),
     interactions.map(interaction => interaction.request.url).sort(),
   );
+  assert.deepEqual(document.log._producer, { host: 'example.test', pathPrefix: '/items' });
+});
+
+test('interactions to different producers are written to separate HAR files', async t => {
+  const outputDir = await mkdtemp(path.join(tmpdir(), 'wmr-plugin-'));
+  t.after(() => rm(outputDir, { recursive: true, force: true }));
+  const plugin = recorderPlugin({ enabled: true, outputDir, rootDir: '/project' });
+  const session = { testFile: '/project/test/example.test.js' };
+  const interactions = [
+    {
+      timestamp: '2026-01-01T00:00:00.000Z',
+      request: { method: 'GET', url: 'https://orders.example.com/api/orders/1', headers: {}, body: null },
+      response: { status: 200, statusText: 'OK', headers: {}, body: null },
+    },
+    {
+      timestamp: '2026-01-01T00:00:01.000Z',
+      request: { method: 'GET', url: 'https://users.example.com/api/users/1', headers: {}, body: null },
+      response: { status: 200, statusText: 'OK', headers: {}, body: null },
+    },
+    {
+      timestamp: '2026-01-01T00:00:02.000Z',
+      request: { method: 'GET', url: 'https://orders.example.com/admin/health', headers: {}, body: null },
+      response: { status: 200, statusText: 'OK', headers: {}, body: null },
+    },
+  ];
+
+  await plugin.executeCommand({ command: COMMANDS.SAVE, payload: { interactions }, session });
+
+  const ordersApi = JSON.parse(
+    await readFile(path.join(outputDir, 'wtr/test/example.test.js.orders.example.com-api.har'), 'utf8'),
+  );
+  const usersApi = JSON.parse(
+    await readFile(path.join(outputDir, 'wtr/test/example.test.js.users.example.com-api.har'), 'utf8'),
+  );
+  const ordersAdmin = JSON.parse(
+    await readFile(path.join(outputDir, 'wtr/test/example.test.js.orders.example.com-admin.har'), 'utf8'),
+  );
+
+  assert.deepEqual(ordersApi.log.entries.map(entry => entry.request.url), ['https://orders.example.com/api/orders/1']);
+  assert.deepEqual(usersApi.log.entries.map(entry => entry.request.url), ['https://users.example.com/api/users/1']);
+  assert.deepEqual(ordersAdmin.log.entries.map(entry => entry.request.url), ['https://orders.example.com/admin/health']);
+});
+
+test('pathSegments: 0 groups purely by host, ignoring the path', async t => {
+  const outputDir = await mkdtemp(path.join(tmpdir(), 'wmr-plugin-'));
+  t.after(() => rm(outputDir, { recursive: true, force: true }));
+  const plugin = recorderPlugin({ enabled: true, outputDir, rootDir: '/project', pathSegments: 0 });
+  const session = { testFile: '/project/test/example.test.js' };
+  const interactions = [
+    {
+      timestamp: '2026-01-01T00:00:00.000Z',
+      request: { method: 'GET', url: 'https://example.com/api/orders/1', headers: {}, body: null },
+      response: { status: 200, statusText: 'OK', headers: {}, body: null },
+    },
+    {
+      timestamp: '2026-01-01T00:00:01.000Z',
+      request: { method: 'GET', url: 'https://example.com/admin/health', headers: {}, body: null },
+      response: { status: 200, statusText: 'OK', headers: {}, body: null },
+    },
+  ];
+
+  await plugin.executeCommand({ command: COMMANDS.SAVE, payload: { interactions }, session });
+
+  const file = path.join(outputDir, 'wtr/test/example.test.js.example.com.har');
+  const document = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(document.log.entries.length, 2);
+  assert.deepEqual(document.log._producer, { host: 'example.com', pathPrefix: '' });
 });

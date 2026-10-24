@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,18 +14,29 @@ function runWtr(files, env) {
     ['wtr', '--config', 'test/fixtures/web-test-runner.config.mjs'],
     { cwd: root, encoding: 'utf8', env: { ...process.env, FIXTURE_FILES: files, OUTPUT_DIR: out, ...env } },
   );
-  return { out, result, read: rel => JSON.parse(readFileSync(path.join(out, rel), 'utf8')) };
+  return { out, result, read: rel => JSON.parse(readFileSync(path.join(out, rel), 'utf8')), findHar: prefix => findHar(out, prefix) };
+}
+
+// Each test file is split into one HAR per producer (hostname + leading path segments). The dev server's
+// hostname/port aren't known ahead of time, so locate the (single, in these fixtures) HAR by filename prefix.
+function findHar(out, prefix) {
+  const dir = path.join(out, 'wtr');
+  const matches = readdirSync(dir, { recursive: true })
+    .filter(entry => entry.replace(/\\/g, '/').startsWith(prefix) && entry.endsWith('.har'));
+  assert.equal(matches.length, 1, `expected exactly one HAR for "${prefix}", found: ${matches.join(', ')}`);
+  return JSON.parse(readFileSync(path.join(dir, matches[0]), 'utf8'));
 }
 
 test('recording enabled captures every method and leaves test results unchanged', t => {
-  const { out, result, read } = runWtr('test/fixtures/methods.fixture.js', { WEB_MOCKS_RECORDER: '1' });
+  const { out, result, findHar } = runWtr('test/fixtures/methods.fixture.js', { WEB_MOCKS_RECORDER: '1' });
   t.after(() => rmSync(out, { recursive: true, force: true }));
   assert.equal(result.status, 0, result.stdout + result.stderr);
 
-  const doc = read('wtr/test/fixtures/methods.fixture.js.har');
+  const doc = findHar('test/fixtures/methods.fixture.js.');
   assert.equal(doc.log.version, '1.2');
   assert.equal(doc.log.creator.name, 'web-mocks-recorder');
   assert.equal(doc.log._source, 'wtr');
+  assert.equal(doc.log._producer.pathPrefix, '/api');
   const byMethod = Object.fromEntries(doc.log.entries.map(entry => [entry.request.method, entry]));
   assert.deepEqual(Object.keys(byMethod).sort(), ['DELETE', 'GET', 'PATCH', 'POST', 'PUT']);
   for (const entry of doc.log.entries) {
@@ -63,10 +74,10 @@ test('recording disabled produces no output and tests still pass', t => {
 });
 
 test('unsupported payload is reported, not invented, and does not fail the test', t => {
-  const { out, result, read } = runWtr('test/fixtures/binary.fixture.js', { WEB_MOCKS_RECORDER: '1' });
+  const { out, result, findHar } = runWtr('test/fixtures/binary.fixture.js', { WEB_MOCKS_RECORDER: '1' });
   t.after(() => rmSync(out, { recursive: true, force: true }));
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  const doc = read('wtr/test/fixtures/binary.fixture.js.har');
+  const doc = findHar('test/fixtures/binary.fixture.js.');
   const [entry] = doc.log.entries;
   assert.equal(entry.response.content.size, -1);
   assert.equal(entry.response.content.text, undefined);

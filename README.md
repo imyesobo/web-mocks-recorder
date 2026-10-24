@@ -11,9 +11,10 @@ import { recorderPlugin } from 'web-mocks-recorder/plugin.js';
 
 export default {
   nodeResolve: true,
-  plugins: [mockPlugin(), recorderPlugin({ outputDir: '.interactions' })],
+  plugins: [mockPlugin(), recorderPlugin({ outputDir: '.interactions', pathSegments: 1 })],
 };
 ```
+`pathSegments` (default `1`) controls how many leading URL path segments are folded into each producer's grouping key — see [Output](#output).
 
 Test file (one line added; the rest of the test is unchanged):
 ```js
@@ -27,9 +28,18 @@ recordInteractions(worker);
 
 **Opt-in switch:** recording runs only with `WEB_MOCKS_RECORDER=1` (or `recorderPlugin({ enabled: true })`). When disabled, no listener is attached, nothing is written and no directory is created.
 
+**Splitting by producer:** interactions recorded within a single test file are not all merged into one HAR. They are grouped by **producer** — the request URL's hostname plus its first `pathSegments` path segments (default `1`) — so requests made to different backends/APIs (or different top-level routes on the same backend) land in separate HAR files. The port is ignored when grouping, since dev servers often get a randomly assigned port. Tune the grouping granularity with `recorderPlugin({ pathSegments: 2 })` (`0` groups by hostname only); unparsable URLs fall into a single `unknown` bucket rather than being dropped.
+
 ## Output
 
-`<outputDir>/wtr/<test file path>.har`, one HAR 1.2 file per test file; runs with zero interactions write nothing.
+`<outputDir>/wtr/<test file path>.<producer>.har`, one HAR 1.2 file per test file **per producer**; runs with zero interactions write nothing. For example, a test file that calls both `https://orders.example.com/api/...` and `https://users.example.com/api/...` produces:
+
+```text
+.interactions/wtr/test/checkout.test.js.orders.example.com-api.har
+.interactions/wtr/test/checkout.test.js.users.example.com-api.har
+```
+
+Each document also carries a `_producer: { host, pathPrefix }` extension field describing which producer it contains.
 
 ```jsonc
 {
@@ -54,7 +64,8 @@ recordInteractions(worker);
       "timings": { "blocked": -1, "dns": -1, "connect": -1, "send": -1, "wait": -1, "receive": -1, "ssl": -1 },
       "_diagnostics": [{ "code": "UNSUPPORTED_PAYLOAD", "target": "response.body", "message": "…" }]
     }],
-    "_executionId": "…", "_source": "wtr", "_testFile": "test/a.test.js"
+    "_executionId": "…", "_source": "wtr", "_testFile": "test/a.test.js",
+    "_producer": { "host": "api.example.com", "pathPrefix": "/orders" }
   }
 }
 ```
