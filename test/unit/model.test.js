@@ -79,6 +79,8 @@ test('recorder: attaches passively, drains, never throws, detaches', async () =>
   assert.equal(out[0].executionId, 'id');
   assert.equal(out[0].response.body, '{"a":1}');
   assert.equal(messages.length, 1);
+  recorder.requeue(out);
+  assert.deepEqual(await recorder.drain(), out);
   assert.deepEqual(await recorder.drain(), []);
   recorder.detach();
   assert.equal(listeners.size, 0);

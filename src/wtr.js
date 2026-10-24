@@ -35,13 +35,17 @@ export function recordInteractions(worker) {
 
   afterEach(async () => {
     if (!recorder) return;
+    let interactions = [];
+    let batchDiagnostics = [];
     try {
-      const interactions = await recorder.drain();
-      const batchDiagnostics = diagnostics.splice(0);
+      interactions = await recorder.drain();
+      batchDiagnostics = diagnostics.splice(0);
       if (interactions.length || batchDiagnostics.length) {
         await executeServerCommand(COMMANDS.SAVE, { interactions, diagnostics: batchDiagnostics });
       }
     } catch (error) {
+      recorder.requeue(interactions);
+      diagnostics.unshift(...batchDiagnostics);
       warn(`[web-mocks-recorder] could not persist interactions: ${error?.message ?? error}`);
     }
   });

@@ -67,6 +67,10 @@ export function createRecorder({ source, executionId = defaultExecutionId(), onD
       interactions = [];
       return out;
     },
+
+    requeue(batch) {
+      interactions = [...batch, ...interactions];
+    },
   };
 }
 
