@@ -1,0 +1,25 @@
+{
+  "name": "web-mocks-recorder",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "description": "Records HTTP interactions exercised through @web/mocks from Web Test Runner tests (and, later, Storybook stories).",
+  "type": "module",
+  "exports": {
+    "./model.js": "./src/model.js",
+    "./recorder.js": "./src/recorder.js",
+    "./wtr.js": "./src/wtr.js",
+    "./plugin.js": "./src/plugin.js"
+  },
+  "scripts": {
+    "test": "npm run test:unit && npm run test:wtr",
+    "test:unit": "node --test test/unit/",
+    "test:wtr": "node --test test/integration/"
+  },
+  "devDependencies": {
+    "@esm-bundle/chai": "^4.3.4-fix.0",
+    "@web/mocks": "^3.0.0",
+    "@web/test-runner": "^1.0.0",
+    "@web/test-runner-commands": "^1.0.1",
+    "@web/test-runner-playwright": "^1.0.0"
+  }
+}
