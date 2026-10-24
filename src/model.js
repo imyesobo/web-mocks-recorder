@@ -36,7 +36,7 @@ const TEXT_TYPE = /^(text\/|application\/(json|xml|javascript|x-www-form-urlenco
  */
 export function normalizeHeaders(headers) {
   /** @type {HeaderMap} */
-  const out = {};
+  const out = Object.create(null);
   const cookies = typeof headers.getSetCookie === 'function' ? headers.getSetCookie() : [];
   for (const [name, value] of headers.entries()) {
     if (name === 'set-cookie' && cookies.length) continue; // entries() would join them
