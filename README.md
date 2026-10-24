@@ -1,6 +1,6 @@
 # web-mocks-recorder
 
-Records HTTP interactions exercised through [`@web/mocks`](https://modern-web.dev/docs/dev-server/plugins/mocks/) into `interactions.json` files. Epic 1, story 1.1: Web Test Runner (WTR) source. Storybook, Pact generation and publication come later and will reuse the model in `src/model.js`.
+Records HTTP interactions exercised through [`@web/mocks`](https://modern-web.dev/docs/dev-server/plugins/mocks/) into `interactions.json` files. Web Test Runner (WTR) is the source. Storybook, Pact generation and publication come later and will reuse the model in `src/model.js`.
 
 ## Usage (WTR)
 
