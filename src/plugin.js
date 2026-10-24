@@ -21,6 +21,7 @@ export function recorderPlugin(options = {}) {
   const executionId = options.executionId ?? randomUUID();
   /** @type {Map<string, { interactions: object[], diagnostics: string[] }>} */
   const files = new Map();
+  const writes = new Map();
 
   return {
     name: 'web-mocks-recorder',
@@ -31,30 +32,39 @@ export function recorderPlugin(options = {}) {
       if (!enabled) return false;
 
       const testFile = session.testFile;
-      const entry = files.get(testFile) ?? { interactions: [], diagnostics: [] };
-      files.set(testFile, entry);
-      entry.interactions.push(...(payload?.interactions ?? []));
-      entry.diagnostics.push(...(payload?.diagnostics ?? []));
-      if (!entry.interactions.length) return true;
-
       const relative = path.relative(rootDir, testFile).split(path.sep).join('/');
       const target = path.join(outputDir, 'wtr', `${relative.replace(/^(\.\.\/)+/, '')}.har`);
-      const document = {
-        log: {
-          version: '1.2',
-          creator: { name: 'web-mocks-recorder', version: '0.1.0' },
-          entries: entry.interactions.map(toHarEntry),
-          _executionId: executionId,
-          _source: 'wtr',
-          _testFile: relative,
-          ...(entry.diagnostics.length && { _diagnostics: entry.diagnostics }),
-        },
-      };
-      await mkdir(path.dirname(target), { recursive: true });
-      const tmp = `${target}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify(document, null, 2) + '\n');
-      await rename(tmp, target);
-      return true;
+      const previousWrite = writes.get(target) ?? Promise.resolve();
+      const write = previousWrite.catch(() => {}).then(async () => {
+        const entry = files.get(testFile) ?? { interactions: [], diagnostics: [] };
+        files.set(testFile, entry);
+        entry.interactions.push(...(payload?.interactions ?? []));
+        entry.diagnostics.push(...(payload?.diagnostics ?? []));
+        if (!entry.interactions.length) return true;
+
+        const document = {
+          log: {
+            version: '1.2',
+            creator: { name: 'web-mocks-recorder', version: '0.1.0' },
+            entries: entry.interactions.map(toHarEntry),
+            _executionId: executionId,
+            _source: 'wtr',
+            _testFile: relative,
+            ...(entry.diagnostics.length && { _diagnostics: entry.diagnostics }),
+          },
+        };
+        await mkdir(path.dirname(target), { recursive: true });
+        const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+        await writeFile(tmp, JSON.stringify(document, null, 2) + '\n');
+        await rename(tmp, target);
+        return true;
+      });
+      writes.set(target, write);
+      try {
+        return await write;
+      } finally {
+        if (writes.get(target) === write) writes.delete(target);
+      }
     },
   };
 }
