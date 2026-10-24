@@ -58,7 +58,7 @@ recordInteractions(worker);
 ```
 
 - HTTP interactions use the standard HAR 1.2 request/response structure. Recorder metadata and diagnostics use HAR-compatible extension fields prefixed with `_`.
-- Header names are lower-cased and sorted; repeated values are represented as separate HAR header records.
+- Header names are lower-cased and sorted. Values already comma-combined by `Headers` remain combined; separate `Set-Cookie` values are represented as separate HAR header records where supported.
 - Absent bodies are omitted from HAR text fields; empty bodies remain empty strings. Recorded bodies are stored verbatim as text.
 - HAR timing, HTTP version and header-size values unavailable to the recorder are marked `-1` or left empty.
 - Non-text content types or non-UTF-8 bytes are **not** recorded: the HAR text field is omitted, size is marked unknown, a `_diagnostics` extension is added and a `console.warn` is emitted. Payload contents are never included in diagnostics.

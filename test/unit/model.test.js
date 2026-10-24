@@ -5,7 +5,7 @@ import { createRecorder } from '../../src/recorder.js';
 
 const fixedNow = () => new Date('2026-01-01T00:00:00.000Z');
 
-test('headers: lower-cased, sorted, repeated values preserved', () => {
+test('headers: lower-cased, sorted, ordinary repeated values stay comma-combined', () => {
   const h = new Headers();
   h.append('X-B', '1');
   h.append('X-A', 'a');
@@ -15,7 +15,7 @@ test('headers: lower-cased, sorted, repeated values preserved', () => {
   const out = normalizeHeaders(h);
   assert.deepEqual(Object.keys(out), ['set-cookie', 'x-a', 'x-b']);
   assert.deepEqual(out['set-cookie'], ['a=1; Path=/', 'b=2; Path=/']);
-  assert.equal(out['x-b'].join('|'), '1, 2');
+  assert.deepEqual(out['x-b'], ['1, 2']);
 });
 
 test('interaction: absent body is null, empty body is empty string', async () => {

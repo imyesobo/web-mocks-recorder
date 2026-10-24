@@ -2,7 +2,7 @@
  * Shared interaction model. Browser-safe (no Node APIs); reused later by Storybook.
  *
  * Conventions (deterministic):
- *  - header names are lower-cased and sorted; every value is a string[] (repeated headers keep each value in order)
+ *  - header names are lower-cased and sorted; Headers-combined values stay comma-combined, while separate Set-Cookie values are preserved when supported
  *  - absent body => `null`; empty-but-present body => `""`
  *  - bodies are stored verbatim as text; they are never parsed or re-serialised
  *  - a body that cannot be safely represented as text is stored as `null` and a diagnostic is attached
