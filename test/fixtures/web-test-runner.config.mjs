@@ -8,5 +8,5 @@ export default {
   rootDir: new URL('../..', import.meta.url).pathname,
   files: [process.env.FIXTURE_FILES ?? 'test/fixtures/*.fixture.js'],
   browsers: [playwrightLauncher({ product: 'chromium' })],
-  plugins: [mockPlugin(), recorderPlugin({ outputDir: process.env.OUTPUT_DIR })],
+  plugins: [mockPlugin(), recorderPlugin({ outputDir: process.env.OUTPUT_DIR, har: true, openApi: false })],
 };
