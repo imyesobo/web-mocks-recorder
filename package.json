@@ -1,9 +1,35 @@
 {
   "name": "web-mocks-recorder",
-  "version": "0.1.0-alpha.0",
-  "private": true,
+  "version": "1.0.0",
   "description": "Records HTTP interactions exercised through @web/mocks from Web Test Runner tests (and, later, Storybook stories).",
+  "license": "MIT",
+  "author": "imyesobo",
+  "keywords": [
+    "web-test-runner",
+    "web-mocks",
+    "har",
+    "openapi",
+    "testing",
+    "mocks"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imyesobo/web-mocks-recorder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imyesobo/web-mocks-recorder/issues"
+  },
+  "homepage": "https://github.com/imyesobo/web-mocks-recorder#readme",
   "type": "module",
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     "./model.js": "./src/model.js",
     "./recorder.js": "./src/recorder.js",

@@ -2,6 +2,12 @@
 
 Records HTTP interactions exercised through [`@web/mocks`](https://modern-web.dev/docs/dev-server/plugins/mocks/) and, by default, generates an OpenAPI 3 spec for each producer. An optional HAR 1.2 file is also available when `har: true`. Web Test Runner (WTR) is the source. Storybook, Pact generation and publication come later and will reuse the model in `src/model.js`.
 
+## Install
+
+```sh
+npm install --save-dev web-mocks-recorder
+```
+
 ## Usage (WTR)
 
 `web-test-runner.config.mjs`
