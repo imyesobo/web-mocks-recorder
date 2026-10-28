@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -30,13 +31,20 @@ async function setup(t, options = {}) {
   return { outputDir, mw };
 }
 
-async function call(mw, { method, url, body }) {
+async function call(mw, { method, url, body, headers = {} }) {
   let nextCalls = 0;
+  const req = Readable.from([Buffer.from(body ?? '')]);
+  req.headers = {
+    host: 'localhost',
+    origin: 'http://localhost',
+    'content-type': 'application/json',
+    ...headers,
+  };
   const ctx = {
     method,
     path: url,
     url,
-    req: Readable.from([Buffer.from(body ?? '')]),
+    req,
     status: undefined,
     body: undefined,
     set() {},
@@ -45,8 +53,8 @@ async function call(mw, { method, url, body }) {
   return { ctx, nextCalls };
 }
 
-const save = (mw, payload) =>
-  call(mw, { method: 'POST', url: STORYBOOK_ENDPOINTS.SAVE, body: typeof payload === 'string' ? payload : JSON.stringify(payload) });
+const save = (mw, payload, options = {}) =>
+  call(mw, { ...options, method: 'POST', url: STORYBOOK_ENDPOINTS.SAVE, body: typeof payload === 'string' ? payload : JSON.stringify(payload) });
 
 const exists = (file) => access(file).then(() => true, () => false);
 
@@ -109,6 +117,35 @@ test('invalid JSON returns 400', async t => {
   assert.equal(ctx.status, 400);
 });
 
+test('save rejects cross-origin requests and unsupported content types', async t => {
+  const { outputDir, mw } = await setup(t);
+  const foreign = await save(mw, payload, {
+    headers: { origin: 'https://attacker.example' },
+  });
+  assert.equal(foreign.ctx.status, 403);
+  const unsupported = await save(mw, payload, {
+    headers: { 'content-type': 'text/plain' },
+  });
+  assert.equal(unsupported.ctx.status, 415);
+  assert.equal(await exists(path.join(outputDir, 'storybook')), false);
+});
+
+test('oversized save responds 413 without destroying the request', async t => {
+  const { mw } = await setup(t);
+  const req = new EventEmitter();
+  req.headers = { host: 'localhost', origin: 'http://localhost', 'content-type': 'application/json' };
+  let destroyCalls = 0;
+  req.destroy = () => { destroyCalls++; };
+  const ctx = { method: 'POST', path: STORYBOOK_ENDPOINTS.SAVE, req, set() {} };
+  const response = mw(ctx, async () => {});
+  req.emit('data', Buffer.alloc(50 * 1024 * 1024 + 1));
+  req.emit('data', Buffer.alloc(1));
+  req.emit('end');
+  await response;
+  assert.equal(ctx.status, 413);
+  assert.equal(destroyCalls, 0);
+});
+
 test('wdsFinal appends exactly one middleware and keeps existing ones', async t => {
   const outputDir = await mkdtemp(path.join(tmpdir(), 'wmr-storybook-'));
   t.after(() => rm(outputDir, { recursive: true, force: true }));
@@ -121,10 +158,16 @@ test('wdsFinal appends exactly one middleware and keeps existing ones', async t 
   assert.equal(fresh.middleware.length, 1);
 });
 
-async function connectCall(mw, { method, url, body }) {
+async function connectCall(mw, { method, url, body, headers = {} }) {
   const req = Readable.from([Buffer.from(body ?? '')]);
   req.method = method;
   req.url = url;
+  req.headers = {
+    host: 'localhost',
+    origin: 'http://localhost',
+    'content-type': 'application/json',
+    ...headers,
+  };
   let nextCalls = 0;
   let touched = false;
   let finish;

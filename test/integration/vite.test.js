@@ -46,7 +46,7 @@ async function startVite(t, pluginOptions = {}) {
 const save = (base, body) =>
   fetch(base + STORYBOOK_ENDPOINTS.SAVE, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'msw/passthrough' },
+    headers: { origin: base, 'content-type': 'application/json', accept: 'msw/passthrough' },
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
 

@@ -2,6 +2,7 @@ import { createRecorder } from './recorder.js';
 import { STORYBOOK_ENDPOINTS } from './commands.js';
 
 const UNKNOWN_FILE = 'unknown-stories';
+const MAX_KEEPALIVE_BODY_BYTES = 64 * 1024;
 
 /**
  * Browser-side recording for Storybook. Used by the addon preview (`storybook-preview.js`), but usable on its own.
@@ -53,7 +54,9 @@ export function createStorybookRecording({ worker, fetch = globalThis.fetch?.bin
 
   const ready = (async () => {
     try {
-      const response = await fetch(endpoints.CONFIG);
+      const response = await fetch(endpoints.CONFIG, {
+        headers: { accept: 'msw/passthrough' },
+      });
       if (!response.ok) {
         await disable();
         return;
@@ -70,18 +73,18 @@ export function createStorybookRecording({ worker, fetch = globalThis.fetch?.bin
     }
   })();
 
-  function flush() {
-    const run = chain.then(doFlush, doFlush);
+  function flush({ lifecycle = false } = {}) {
+    const run = chain.then(() => doFlush({ lifecycle }), () => doFlush({ lifecycle }));
     chain = run;
     return run;
   }
 
-  async function doFlush() {
+  async function doFlush({ lifecycle = false } = {}) {
     clearTimeout(timer);
     try {
       await ready;
       if (disabled) return;
-      const interactions = (await recorder.drain()).map(i => (executionId ? { ...i, executionId } : i));
+      const interactions = (await recorder.drain({ wait: !lifecycle })).map(i => (executionId ? { ...i, executionId } : i));
       /** @type {Map<string, any[]>} */
       const groups = new Map();
       for (const interaction of interactions) {
@@ -95,12 +98,20 @@ export function createStorybookRecording({ worker, fetch = globalThis.fetch?.bin
         const batchDiagnostics = diagnostics.splice(0);
         if (!batch.length && !batchDiagnostics.length) continue;
         try {
-          const response = await fetch(endpoints.SAVE, {
+          const body = JSON.stringify({ storiesFile, interactions: batch, diagnostics: batchDiagnostics });
+          const keepalive = new TextEncoder().encode(body).byteLength <= MAX_KEEPALIVE_BODY_BYTES;
+          if (lifecycle && !keepalive) {
+            recorder.requeue(batch);
+            diagnostics.unshift(...batchDiagnostics);
+            continue;
+          }
+          const request = {
             method: 'POST',
-            keepalive: true,
             headers: { 'content-type': 'application/json', accept: 'msw/passthrough' },
-            body: JSON.stringify({ storiesFile, interactions: batch, diagnostics: batchDiagnostics }),
-          });
+            body,
+          };
+          if (keepalive) request.keepalive = true;
+          const response = await fetch(endpoints.SAVE, request);
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
         } catch (error) {
           recorder.requeue(batch);
@@ -126,7 +137,7 @@ export function createStorybookRecording({ worker, fetch = globalThis.fetch?.bin
     return storyFn(context);
   }
 
-  globalThis.addEventListener?.('pagehide', () => void flush());
+  globalThis.addEventListener?.('pagehide', () => void flush({ lifecycle: true }));
 
   return { decorator, flush, ready };
 }

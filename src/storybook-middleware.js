@@ -27,16 +27,21 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooLarge = false;
     req.on('data', (chunk) => {
+      if (tooLarge) return;
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
+        tooLarge = true;
+        chunks.length = 0;
         reject(new BodyTooLargeError());
-        req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => {
+      if (!tooLarge) resolve(Buffer.concat(chunks).toString('utf8'));
+    });
     req.on('error', reject);
   });
 }
@@ -45,6 +50,21 @@ function respond(ctx, status, body) {
   ctx.status = status;
   ctx.type = 'application/json';
   ctx.body = JSON.stringify(body);
+}
+
+function isSameOrigin(req) {
+  const origin = req.headers?.origin;
+  const host = req.headers?.host;
+  if (typeof origin !== 'string' || typeof host !== 'string') return false;
+  try {
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const protocol = (typeof forwardedProto === 'string' ? forwardedProto.split(',')[0].trim() : '') ||
+      (req.socket?.encrypted ? 'https' : 'http');
+    if (protocol !== 'http' && protocol !== 'https') return false;
+    return new URL(origin).origin === new URL(`${protocol}://${host}`).origin;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -75,6 +95,13 @@ export function createStorybookRecorderHandler(options = {}) {
     }
     if (!enabled) {
       return { status: 200, body: false };
+    }
+    if (!isSameOrigin(req)) {
+      return { status: 403, body: false };
+    }
+    const contentType = req.headers?.['content-type'];
+    if (typeof contentType !== 'string' || contentType.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
+      return { status: 415, body: false };
     }
 
     try {

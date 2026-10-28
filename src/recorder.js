@@ -69,9 +69,9 @@ export function createRecorder({ source, executionId = defaultExecutionId(), get
     },
 
     /** Waits for in-flight body reads, then returns and clears captured interactions. */
-    async drain() {
+    async drain({ wait = true } = {}) {
       // MSW may emit `response:mocked` for the last request just after its fetch resolves.
-      await new Promise(resolve => setTimeout(resolve, 0));
+      if (wait) await new Promise(resolve => setTimeout(resolve, 0));
       while (pending.size) await Promise.all([...pending]);
       const out = interactions;
       interactions = [];
