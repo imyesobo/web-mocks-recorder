@@ -8,10 +8,11 @@ import { createInteraction } from './model.js';
  * @param {{
  *   source: import('./model.js').Interaction['source'],
  *   executionId?: string,
+ *   getStory?: () => import('./model.js').StoryRef | undefined,
  *   onDiagnostic?: (message: string) => void,
  * }} options
  */
-export function createRecorder({ source, executionId = defaultExecutionId(), onDiagnostic = () => {} }) {
+export function createRecorder({ source, executionId = defaultExecutionId(), getStory = () => undefined, onDiagnostic = () => {} }) {
   /** @type {import('./model.js').Interaction[]} */
   let interactions = [];
   /** @type {Set<Promise<void>>} */
@@ -21,7 +22,14 @@ export function createRecorder({ source, executionId = defaultExecutionId(), onD
 
   /** @param {Request} request @param {Response} response */
   function record(request, response) {
-    const task = createInteraction({ executionId, source, request, response })
+    // Read synchronously: the current story must be the one active when the response was mocked.
+    let story;
+    try {
+      story = getStory();
+    } catch (error) {
+      onDiagnostic(`[web-mocks-recorder] could not resolve story: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+    const task = createInteraction({ executionId, source, request, response, story })
       .then(interaction => {
         interactions.push(interaction);
         for (const d of interaction.diagnostics ?? []) {

@@ -85,3 +85,14 @@ test('recorder: attaches passively, drains, never throws, detaches', async () =>
   recorder.detach();
   assert.equal(listeners.size, 0);
 });
+
+test('interaction: story is set only when provided', async () => {
+  const input = {
+    executionId: 'e', source: 'storybook', now: fixedNow,
+    request: new Request('http://x/a'),
+    response: new Response(null, { status: 204 }),
+  };
+  assert.equal('story' in await createInteraction(input), false);
+  const story = { id: 'a--b', title: 'A', name: 'B', fileName: './a.stories.js' };
+  assert.deepEqual((await createInteraction({ ...input, story })).story, story);
+});
