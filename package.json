@@ -1,11 +1,14 @@
 {
   "name": "web-mocks-recorder",
-  "version": "1.0.0",
-  "description": "Records HTTP interactions exercised through @web/mocks from Web Test Runner tests (and, later, Storybook stories).",
+  "version": "1.2.0",
+  "description": "Records HTTP interactions exercised through @web/mocks from Web Test Runner tests and Storybook stories (WDS or Vite builder), generating OpenAPI specs (default) or HAR files.",
   "license": "MIT",
   "author": "imyesobo",
   "keywords": [
     "web-test-runner",
+    "storybook",
+    "storybook-addon",
+    "vite",
     "web-mocks",
     "har",
     "openapi",
@@ -34,7 +37,12 @@
     "./model.js": "./src/model.js",
     "./recorder.js": "./src/recorder.js",
     "./wtr.js": "./src/wtr.js",
-    "./plugin.js": "./src/plugin.js"
+    "./plugin.js": "./src/plugin.js",
+    "./storybook.js": "./src/storybook.js",
+    "./storybook/preset": "./src/storybook-preset.js",
+    "./storybook/preview": "./src/storybook-preview.js",
+    "./storybook/vite": "./src/storybook-vite.js",
+    "./storybook-middleware.js": "./src/storybook-middleware.js"
   },
   "scripts": {
     "test": "npm run test:unit && npm run test:wtr",
@@ -46,7 +54,8 @@
     "@web/mocks": "^3.0.0",
     "@web/test-runner": "^1.0.0",
     "@web/test-runner-commands": "^1.0.1",
-    "@web/test-runner-playwright": "^1.0.0"
+    "@web/test-runner-playwright": "^1.0.0",
+    "vite": "^8.3.5"
   },
   "dependencies": {
     "har-to-openapi": "^3.0.1"

@@ -1,6 +1,6 @@
 # web-mocks-recorder
 
-Records HTTP interactions exercised through [`@web/mocks`](https://modern-web.dev/docs/dev-server/plugins/mocks/) and, by default, generates an OpenAPI 3 spec for each producer. An optional HAR 1.2 file is also available when `har: true`. Web Test Runner (WTR) is the source. Storybook, Pact generation and publication come later and will reuse the model in `src/model.js`.
+Records HTTP interactions exercised through [`@web/mocks`](https://modern-web.dev/docs/dev-server/plugins/mocks/) and, by default, generates an OpenAPI 3 spec for each producer. An optional HAR 1.2 file is also available when `har: true`. Web Test Runner (WTR) and Storybook are the supported sources. Pact generation and publication come later and will reuse the model in `src/model.js`.
 
 ## Install
 
@@ -37,6 +37,58 @@ recordInteractions(worker);
 **Opt-in switch:** recording runs only with `WEB_MOCKS_RECORDER=1` (or `recorderPlugin({ enabled: true })`). When disabled, no listener is attached, nothing is written and no directory is created.
 
 **Splitting by producer:** interactions recorded within a single test file are not all merged into one document. They are grouped by **producer** — the request URL's hostname plus its first `pathSegments` path segments (default `1`) — so requests made to different backends/APIs (or different top-level routes on the same backend) land in separate OpenAPI specs (and HAR files, when enabled). The port is ignored when grouping, since dev servers often get a randomly assigned port. Tune the grouping granularity with `recorderPlugin({ pathSegments: 2 })` (`0` groups by hostname only); unparsable URLs fall into a single `unknown` bucket rather than being dropped.
+
+## Usage (Storybook)
+
+Prerequisites: a Storybook using either the `@web/storybook-builder` (for example `@web/storybook-framework-web-components`, with `@web/storybook-addon-mocks`) or the Vite builder (for example `@storybook/web-components-vite`, registering mocks with `registerMockRoutes` from `@web/mocks/browser.js`). The addon registers its dev-server middleware through `wdsFinal` for WDS and `viteFinal` for Vite; the same configuration works for both.
+
+`.storybook/main.js`
+```js
+export default {
+  addons: [
+    '@web/storybook-addon-mocks',
+    {
+      name: 'web-mocks-recorder/storybook',
+      options: { outputDir: '.interactions', pathSegments: 1, openApi: true, har: false },
+    },
+  ],
+};
+```
+The plain string form `'web-mocks-recorder/storybook'` also works (defaults apply).
+
+- **On by default:** registering the addon is the opt-in, so recording starts with `storybook dev`. Disable it with `enabled: false` or `WEB_MOCKS_RECORDER=0 storybook dev`. (WTR remains opt-in via `WEB_MOCKS_RECORDER=1`.)
+- **No story changes needed:** the existing `parameters.mocks` are recorded while you interact with the Storybook UI. Each interaction is attributed to the story that was rendered when the mocked response happened.
+- **Flushing:** files are written about 500 ms after the last interaction, when you switch to a story in another stories file, and on page unload.
+- **Output:** `<outputDir>/storybook/<stories file path>.<producer>.openapi.json`, plus a `.har` file when `har: true`. Producer grouping, `pathSegments`, `openApi` and `har` behave as in WTR. HAR files additionally carry `log._storiesFile` and, on each entry, `_story`.
+- **Single `@web/mocks`:** make sure the Storybook dev server resolves exactly one copy of `@web/mocks/browser.js` (dedupe it); otherwise the recorder listens to a different worker and records nothing.
+
+### Manual setup
+
+Instead of registering the addon preview, add the decorator yourself in `.storybook/preview.js`:
+```js
+import { withInteractionRecording } from 'web-mocks-recorder/storybook/preview';
+
+export const decorators = [withInteractionRecording];
+```
+Do not register the addon preset in this case, but the middleware must still be registered in `.storybook/main.js`: through `wdsFinal` (WDS) or, for Vite, by adding the plugin yourself:
+```js
+import { storybookRecorderVitePlugin } from 'web-mocks-recorder/storybook/vite';
+
+export default {
+  viteFinal: (config) => ({
+    ...config,
+    plugins: [...(config.plugins ?? []), storybookRecorderVitePlugin({ outputDir: '.interactions' })],
+  }),
+};
+```
+
+### Limitations
+
+- Dev server only: `storybook build` / static Storybook writes nothing.
+- Only the WDS and Vite builders are supported; webpack is not.
+- In Docs pages several stories render in one iframe, so `_story` may name the last rendered story.
+- Revisiting a story appends duplicate HAR entries during the same dev-server session.
+- Mocks edited through the addon panel trigger a page reload and are recorded with the edited responses.
 
 ## Output
 
@@ -153,4 +205,4 @@ Output naming policy, empty-recording policy (currently: no file), redaction of 
 
 ## Tests
 
-`npm test` runs unit tests and integration tests that drive real WTR runs in Chromium (`npx playwright install chromium` first).
+`npm test` runs unit tests and integration tests that drive real WTR runs and the Storybook recording flow (no Storybook install needed) in Chromium (`npx playwright install chromium` first).

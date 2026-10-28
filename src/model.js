@@ -1,5 +1,5 @@
 /**
- * Shared interaction model. Browser-safe (no Node APIs); reused later by Storybook.
+ * Shared interaction model. Browser-safe (no Node APIs); shared by the Web Test Runner and Storybook recorders.
  *
  * Conventions (deterministic):
  *  - header names are lower-cased and sorted; Headers-combined values stay comma-combined, while separate Set-Cookie values are preserved when supported
@@ -17,6 +17,7 @@ export const DIAGNOSTIC_CODES = {
 
 /**
  * @typedef {Record<string, string[]>} HeaderMap
+ * @typedef {{ id: string, title: string, name: string, fileName: string }} StoryRef
  * @typedef {{ code: string, target: 'request.body' | 'response.body', message: string }} Diagnostic
  * @typedef {{
  *   executionId: string,
@@ -24,6 +25,7 @@ export const DIAGNOSTIC_CODES = {
  *   timestamp: string,
  *   request: { method: string, url: string, headers: HeaderMap, body: string | null },
  *   response: { status: number, headers: HeaderMap, body: string | null },
+ *   story?: StoryRef,
  *   diagnostics?: Diagnostic[],
  * }} Interaction
  */
@@ -94,11 +96,11 @@ export async function readBody(message, target) {
 }
 
 /**
- * @param {{ executionId: string, source: Interaction['source'], request: Request, response: Response, now?: () => Date }} input
+ * @param {{ executionId: string, source: Interaction['source'], request: Request, response: Response, story?: StoryRef, now?: () => Date }} input
  *   `request` and `response` must be clones the recorder is free to consume.
  * @returns {Promise<Interaction>}
  */
-export async function createInteraction({ executionId, source, request, response, now = () => new Date() }) {
+export async function createInteraction({ executionId, source, request, response, story, now = () => new Date() }) {
   const timestamp = now().toISOString();
   const [req, res] = await Promise.all([
     readBody(request, 'request.body'),
@@ -122,6 +124,7 @@ export async function createInteraction({ executionId, source, request, response
       body: res.body,
     },
   };
+  if (story) interaction.story = story;
   if (diagnostics.length) interaction.diagnostics = /** @type {Diagnostic[]} */ (diagnostics);
   return interaction;
 }
